@@ -6,6 +6,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
+	"log"
 	"mime/multipart"
 	"os"
 	"os/exec"
@@ -13,21 +14,24 @@ import (
 )
 
 type ImageTranscoder struct {
-	path       string
+	tempPath   string
+	id         string
 	filename   string
 	origHeight int
 	origWidth  int
+	mimetype   string
 }
 
-func NewImageTranscoder(id, filename string, file multipart.File) (*ImageTranscoder, error) {
+func NewImageTranscoder(tmpPath, id string, file multipart.File, fileHeader *multipart.FileHeader) (*ImageTranscoder, error) {
+
 	// create tmp path
-	path, err := createTempDir(id)
+	tmp, err := createTempDir(tmpPath, id)
 	if err != nil {
 		return nil, err
 	}
 
 	// save the original file
-	output, err := os.Create(path + "/" + filename)
+	output, err := os.Create(tmp + "/" + fileHeader.Filename)
 	if err != nil {
 		return nil, err
 	}
@@ -44,19 +48,22 @@ func NewImageTranscoder(id, filename string, file multipart.File) (*ImageTransco
 	}
 
 	return &ImageTranscoder{
-		path:       path,
-		filename:   filename,
+		id:         id,
+		tempPath:   tmpPath,
+		filename:   fileHeader.Filename,
 		origHeight: img.Bounds().Dy(),
 		origWidth:  img.Bounds().Dx(),
+		mimetype:   "image/png",
 	}, nil
 }
 
 // Cleanup deletes the folder containing all the image files
 func (self *ImageTranscoder) Cleanup() error {
-	return os.RemoveAll(self.path)
+	return os.RemoveAll(self.tempPath + "/" + self.id)
 }
 
 // ResizeTo resized the original image to each of the passed in sizes
+// TODO: resize in channels
 func (self *ImageTranscoder) ResizeTo(sizes ...int) ([]string, error) {
 	filenames := make([]string, len(sizes))
 	for i, size := range sizes {
@@ -72,9 +79,9 @@ func (self *ImageTranscoder) ResizeTo(sizes ...int) ([]string, error) {
 
 // Resize the image to the specified size.
 func (self *ImageTranscoder) resizeTo(size int) (string, error) {
+	log.Println("resizing to", strconv.Itoa(size))
 	dims := fmt.Sprintf("%dx%d", size, size)
-	savePath := self.path + "/" + strconv.Itoa(size) + "_" + self.filename
-	srcPath := self.path + "/" + self.filename
+	sizedFilename := self.id + "/" + strconv.Itoa(size) + "_" + self.filename
 
 	// TODO: add logic to resize based on image size
 	cmd := exec.Command("convert",
@@ -83,20 +90,20 @@ func (self *ImageTranscoder) resizeTo(size int) (string, error) {
 		"-gravity", "center",
 		"-extent", dims,
 		"-unsharp", "0x.9",
-		srcPath,
-		savePath,
+		self.tempPath+"/"+self.id+"/"+self.filename,
+		self.tempPath+"/"+sizedFilename,
 	)
 
 	if err := cmd.Run(); err != nil {
 		return "", err
 	}
 
-	return savePath, nil
+	return sizedFilename, nil
 }
 
 // create a temp folder for the user to save temp files to
-func createTempDir(id string) (string, error) {
-	path := "/tmp/" + id
+func createTempDir(tmp, id string) (string, error) {
+	path := tmp + "/" + id
 	if err := os.MkdirAll(path, 0755); err != nil {
 		return "", err
 	}

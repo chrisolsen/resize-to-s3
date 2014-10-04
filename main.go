@@ -19,23 +19,26 @@ type resizeDetails struct {
 }
 
 // ./config/settings.json struct
+// TODO: move, at the very least, the secret key into an ENV var
 type config struct {
 	Sizes []int `json:"sizes"`
 	S3    struct {
 		SecretKey string `json:"secret_key"`
 		AccessKey string `json:"access_key"`
 		Bucket    string `json:"bucket"`
+		Region    string `json:"region"`
 	} `json:"s3"`
 }
 
 var settings config
 
 func init() {
-	file, err := ioutil.ReadFile("./config/settings.json")
+	b, err := ioutil.ReadFile("./config/settings.json")
 	if err != nil {
 		panic("Unable to load ./config/settings.json file")
 	}
-	json.NewDecoder(bytes.NewReader(file)).Decode(settings)
+
+	json.NewDecoder(bytes.NewReader(b)).Decode(&settings)
 }
 
 // Server
@@ -67,6 +70,7 @@ func AttachImage(w http.ResponseWriter, r *http.Request) {
 		secretKey: settings.S3.SecretKey,
 		accessKey: settings.S3.AccessKey,
 		bucket:    settings.S3.Bucket,
+		region:    settings.S3.Region,
 	}
 
 	// obtain file details
@@ -76,22 +80,21 @@ func AttachImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// resize setup
-	t, err := NewImageTranscoder(userId, fileHeader.Filename, file)
+	// resize
+	t, err := NewImageTranscoder("/tmp", userId, file, fileHeader)
 	if err != nil {
 		http.Error(w, toErr("Transcoder Init Fail", err), http.StatusInternalServerError)
 		return
 	}
 
-	// perform resize
-	filenames, err := t.ResizeTo(settings.Sizes...)
+	filenames, err := t.ResizeTo(30, 60, 80, 160)
 	if err != nil {
 		http.Error(w, toErr("Resize Fail", err), http.StatusInternalServerError)
 		return
 	}
 
 	// upload files
-	if err := s3.Upload(filenames); err != nil {
+	if err := s3.Upload("/tmp", filenames); err != nil {
 		http.Error(w, toErr("S3 Fail", err), http.StatusInternalServerError)
 		return
 	}

@@ -1,8 +1,0 @@
-{
-  "size": [30, 60, 80, 160],
-  "s3": {
-    "secret_key": "1235",
-    "access_key": "876543",
-    "bucket": "foobar"
-  }
-}
